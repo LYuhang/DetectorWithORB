@@ -12,7 +12,7 @@ class Config(object):
         '''
         ############### General Config ###############
         # define the feature used
-        self.DES_TYPE = "HOG"
+        self.DES_TYPE = "ORB"
         self.CLF_TYPE = "LIN_SVM"
 
         # define the project_id
@@ -30,6 +30,13 @@ class Config(object):
         self.update_names()
         self.mk_new_dirs()
 
+        ################# K-means ###################
+        self.USE_MINIBATCH = True
+        self.Kmeans = {
+            "Clusters" : 128,
+            "batch_size" : 2000
+        }
+
         ################# Features #################
         # Define HOG Features params
         self.MIN_WDW_SIZE = [64, 64]
@@ -45,6 +52,12 @@ class Config(object):
         # Define LBP Features params
         self.LBP_RADIUS = 3
         self.LBP_POINTS = 8 * self.LBP_RADIUS
+
+        # Define ORB Features params
+        self.ORBParam = {
+            "Nfeatures": 200,
+            "Edgethresh": 2
+        }
 
     def mk_new_dirs(self):
         for ph in self.DIR_PATHS.values():

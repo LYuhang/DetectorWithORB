@@ -26,16 +26,24 @@ if __name__ == "__main__":
         extractor = Extractor(conf)
         extractor.image_preprocess_size()
         extractor.extract_features()
-
-        ## Initialize the Classifier and train the model
-        classifier = Classifier(conf)
-        classifier.load_data()
-        classifier.train_classifier()
+        if conf.DES_TYPE == "ORB":
+            classifier = Classifier(conf)
+            classifier.load_data()  # load ori features data
+            classifier.train_k_means()  # train k-means
+            extractor.get_kmeans_features()  # get count features with k-means
+            classifier.load_points_features()  # load points features
+            classifier.train_classifier() # train svm or mlp
+        else:
+            ## Initialize the Classifier and train the model
+            classifier = Classifier(conf)
+            classifier.load_data()
+            classifier.train_classifier()
     elif args.action == "test":
         ## Initialize the Classifier , load the model and test
         ## on the test images
         classifier = Classifier(conf)
-        classifier.load_model()
+        classifier.load_model("SVM")
+        classifier.load_model("Kmeans")
         classifier.test_classifier()
     else:
         raise Exception("There is no action %s" % args.action)

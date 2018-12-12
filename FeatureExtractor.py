@@ -217,9 +217,55 @@ class Extractor(GeneralImageProcess):
             fd = lbp(image, self.config.LBP_POINTS, self.config.LBP_RADIUS)
         elif self.config.DES_TYPE == "HAAR":
             fd = haar_like_feature(integral_image(image), 0, 0, 5, 5, 'type-3-x')
+        elif self.config.DES_TYPE == "ORB":
+            Orb = cv2.ORB_create(nfeatures=self.config.ORBParam["Nfeatures"],
+                                edgeThreshold=self.config.ORBParam["Edgethresh"])
+            fd = Orb.detectAndCompute(image, None)[1] # Compute the description of the keypoints
         else:
             raise KeyError("==> The Processing method does not exist!")
         return fd
+
+    def get_kmeans_features(self):
+        '''
+        This function is used to extract point features with k-means,
+        the input is a key point description vector, and k-means gives
+        it a cluster label range(0, n_clusters)
+        :return: None
+        '''
+        if self.config.DES_TYPE != "ORB":
+            raise Exception("Can not extract feature, beacause %s does not support."\
+                            % self.config.DES_TYPE)
+
+        PosSamples = []
+        NegSamples = []
+        ## load the k-means model
+        if not self.config.USE_MINIBATCH:
+            km = joblib.load(os.path.join(self.config.DIR_PATHS["MODEL_DIR_PH"], "_kmeans.pkl"))
+        else:
+            km = joblib.load(os.path.join(self.config.DIR_PATHS["MODEL_DIR_PH"], "_minibatchkmeans.pkl"))
+
+        ## get points features with k-means
+        print("==> Get positive images points features......")
+        for feat_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["POS_FEAT_PH"], "*.feat"))):
+            feat = joblib.load(feat_path)
+            if feat is None:
+                PosSamples.append(np.array([]))
+                continue
+            feat = km.predict(feat)
+            PosSamples.append(feat)
+        print("==> Get negtive images points features......")
+        for feat_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["NEG_FEAT_PH"], "*.feat"))):
+            feat = joblib.load(feat_path)
+            if feat is None:
+                NegSamples.append(np.array([]))
+                continue
+            feat = km.predict(feat)
+            NegSamples.append(feat)
+
+        ## Save the points features
+        print("==> Saving points features......")
+        joblib.dump(PosSamples, os.path.join(self.config.DIR_PATHS["POS_FEAT_PH"], "_pos_points_features.pkl"))
+        joblib.dump(NegSamples, os.path.join(self.config.DIR_PATHS["NEG_FEAT_PH"], "_neg_points_features.pkl"))
 
     def extract_features(self):
         '''
@@ -236,8 +282,12 @@ class Extractor(GeneralImageProcess):
 
         print("==> Calculating the descriptors for the positive samples and saving them")
         for im_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["POS_IMG_PH"], "*"))):
-            im = imread(im_path, as_grey=True)
+            if self.config.DES_TYPE == "ORB":
+                im = cv2.imread(im_path, 0)
+            else:
+                im = imread(im_path, as_grey=True)
             fd = self.process_image(im)
+            if fd is None: continue
             fd_name = os.path.split(im_path)[1].split(".")[0] + ".feat"
             fd_path = os.path.join(self.config.DIR_PATHS["POS_FEAT_PH"], fd_name)
             joblib.dump(fd, fd_path)
@@ -245,8 +295,12 @@ class Extractor(GeneralImageProcess):
 
         print("==> Calculating the descriptors for the negative samples and saving them")
         for im_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["NEG_IMG_PH"], "*"))):
-            im = imread(im_path, as_grey=True)
+            if self.config.DES_TYPE == "ORB":
+                im = cv2.imread(im_path, 0)
+            else:
+                im = imread(im_path, as_grey=True)
             fd = self.process_image(im)
+            if fd is None: continue
             fd_name = os.path.split(im_path)[1].split(".")[0] + ".feat"
             fd_path = os.path.join(self.config.DIR_PATHS["NEG_FEAT_PH"], fd_name)
             joblib.dump(fd, fd_path)

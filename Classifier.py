@@ -12,6 +12,8 @@ from sklearn.svm import LinearSVC
 from sklearn.neural_network import MLPClassifier
 from skimage.transform import pyramid_gaussian
 from sklearn.externals import joblib
+from sklearn.cluster import KMeans, MiniBatchKMeans
+from sklearn.utils import shuffle
 
 from FeatureExtractor import Extractor
 
@@ -35,14 +37,72 @@ class Classifier(object):
         print("==> Loading the positive features")
         for feat_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["POS_FEAT_PH"], "*.feat"))):
             fd = joblib.load(feat_path)
-            self.fds.append(fd.reshape(-1))
+            if self.config.DES_TYPE == "ORB": # The training data 2D array
+                self.fds.append(fd)
+            else:                             # The training data 1D array
+                self.fds.append(fd.reshape(-1))
             self.labels.append(1)
 
         print("==> Load the negative features")
         for feat_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["NEG_FEAT_PH"], "*.feat"))):
             fd = joblib.load(feat_path)
-            self.fds.append(fd.reshape(-1))
+            if self.config.DES_TYPE == "ORB":
+                self.fds.append(fd)
+            else:
+                self.fds.append(fd.reshape(-1))
             self.labels.append(0)
+
+    def load_points_features(self):
+        '''
+        This function is used to load point features and labels to form the
+        training data
+        :return:None
+        '''
+        if self.config.DES_TYPE != "ORB":
+            raise Exception("Can not load points features, because %s does not \
+                            support." % self.config.DES_TYPE)
+        self.fds = []
+        self.labels = []
+
+        ## Count the points features
+        def get_count_vector(arr):
+            ca = np.zeros((self.config.Kmeans["Clusters"],))
+            for i in arr:
+                ca[i] += 1
+            return ca
+
+        self.get_count_vector = get_count_vector
+
+        print("==> Loading the positive features")
+        pos_samples = joblib.load(os.path.join(self.config.DIR_PATHS["POS_FEAT_PH"], "_pos_points_features.pkl"))
+        self.fds.extend(list(map(get_count_vector, pos_samples)))
+        self.labels.extend([1]*len(pos_samples))
+        print("==> Loading the negtive features")
+        neg_samples = joblib.load(os.path.join(self.config.DIR_PATHS["NEG_FEAT_PH"], "_neg_points_features.pkl"))
+        self.fds.extend(list(map(get_count_vector, neg_samples)))
+        self.labels.extend([0]*len(neg_samples))
+
+    def train_k_means(self):
+        print("==>Applying K-means......")
+        if self.config.DES_TYPE == "ORB":
+            Allpoints = np.concatenate(self.fds, axis=0)
+            np.random.shuffle(Allpoints)
+
+            ## Begin to applying k-means
+            if not self.config.USE_MINIBATCH:
+                print("Using K-means function")
+                self.km = KMeans(n_clusters=self.config.Kmeans["Clusters"])
+                self.km.fit(Allpoints)
+                joblib.dump(self.km, os.path.join(self.config.DIR_PATHS["MODEL_DIR_PH"], "_kmeans.pkl"))
+            else:
+                print("Using MinibatchKmeans function")
+                self.km = MiniBatchKMeans(n_clusters=self.config.Kmeans["Clusters"],
+                                     batch_size=self.config.Kmeans["batch_size"])
+                self.km.fit(Allpoints)
+                joblib.dump(self.km, os.path.join(self.config.DIR_PATHS["MODEL_DIR_PH"], "_minibatchkmeans.pkl"))
+        else:
+            raise Exception("Can not apply K-means, because %s does not \
+                            need K-means." % self.config.DES_TYPE)
 
     def train_classifier(self):
         '''
@@ -64,12 +124,20 @@ class Classifier(object):
             joblib.dump(clf, self.MODEL_PH)
             print("==> Classifier saved to {}".format(self.config.MODEL_PH))
 
-    def load_model(self):
+    def load_model(self, ml_name="SVM"):
         '''
         This functiton is used to load the model
         :return: None
         '''
-        self.clf = joblib.load(self.config.MODEL_PH)  # Load the classifier
+        if ml_name == "SVM":
+            self.clf = joblib.load(self.config.MODEL_PH)  # Load the classifier
+        elif ml_name == "Kmeans":
+            if not self.config.USE_MINIBATCH:
+                self.km = joblib.load(os.path.join(self.config.DIR_PATHS["MODEL_DIR_PH"], "_kmeans.pkl"))
+            else:
+                self.km = joblib.load(os.path.join(self.config.DIR_PATHS["MODEL_DIR_PH"], "_minibatchkmeans.pkl"))
+        else:
+            raise Exception("No such model %s" % ml_name)
 
     def predict(self, fd, score=False):
         '''
@@ -96,10 +164,16 @@ class Classifier(object):
         model.
         :return: None
         '''
+        if self.config.DES_TYPE == "ORB":
+            self.load_model(ml_name="Kmeans")
+
         for im_path in [os.path.join(self.config.DIR_PATHS["TEST_IMG_DIR_PH"], i) for i in
                         os.listdir(self.config.DIR_PATHS["TEST_IMG_DIR_PH"]) if not i.startswith('.')]:
             # Read the Image
-            im = Image.open(im_path).convert('L')
+            if self.config.DES_TYPE == "ORB":
+                im = cv2.imread(im_path, 0)
+            else:
+                im = Image.open(im_path).convert('L')
             im = np.array(extractor.resize_by_short(im))
 
             detections = []  # List to store the detections
@@ -115,8 +189,14 @@ class Classifier(object):
                 for (x, y, im_window) in extractor.sliding_window(im_scaled, self.config.MIN_WDW_SIZE, self.config.STEP_SIZE):
                     if im_window.shape[0] != self.config.MIN_WDW_SIZE[1] or im_window.shape[1] != self.config.MIN_WDW_SIZE[0]:
                         continue
-                    # Calculate the HOG features
-                    fd = extractor.process_image(im_window).reshape([1, -1])
+
+                    if self.config.DES_TYPE == "ORB":
+                        fd = extractor.process_image(im_window)
+                        fd = self.km.predict(fd)
+                        fd = self.get_count_vector(fd)
+                    else:
+                        # Calculate the HOG features
+                        fd = extractor.process_image(im_window).reshape([1, -1])
                     pred = self.predict(fd, score=False)
                     if pred == 1:
                         if self.config.IF_PRINT: print("==> Detection:: Location -> ({}, {})".format(x, y))
