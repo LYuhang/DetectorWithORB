@@ -12,7 +12,7 @@ class Config(object):
         '''
         ############### General Config ###############
         # define the feature used
-        self.DES_TYPE = "ORB"
+        self.DES_TYPE = "ORB"   ## HOG, LBP, ORB
         self.CLF_TYPE = "LIN_SVM"
 
         # define the project_id
