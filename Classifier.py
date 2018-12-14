@@ -52,6 +52,12 @@ class Classifier(object):
                 self.fds.append(fd.reshape(-1))
             self.labels.append(0)
 
+    def get_count_vector(self, arr):
+        ca = np.zeros((self.config.Kmeans["Clusters"],))
+        for i in arr:
+            ca[i] += 1
+        return ca
+
     def load_points_features(self):
         '''
         This function is used to load point features and labels to form the
@@ -64,22 +70,13 @@ class Classifier(object):
         self.fds = []
         self.labels = []
 
-        ## Count the points features
-        def get_count_vector(arr):
-            ca = np.zeros((self.config.Kmeans["Clusters"],))
-            for i in arr:
-                ca[i] += 1
-            return ca
-
-        self.get_count_vector = get_count_vector
-
         print("==> Loading the positive features")
         pos_samples = joblib.load(os.path.join(self.config.DIR_PATHS["POS_FEAT_PH"], "_pos_points_features.pkl"))
-        self.fds.extend(list(map(get_count_vector, pos_samples)))
+        self.fds.extend(list(map(self.get_count_vector, pos_samples)))
         self.labels.extend([1]*len(pos_samples))
         print("==> Loading the negtive features")
         neg_samples = joblib.load(os.path.join(self.config.DIR_PATHS["NEG_FEAT_PH"], "_neg_points_features.pkl"))
-        self.fds.extend(list(map(get_count_vector, neg_samples)))
+        self.fds.extend(list(map(self.get_count_vector, neg_samples)))
         self.labels.extend([0]*len(neg_samples))
 
     def train_k_means(self):
@@ -170,10 +167,7 @@ class Classifier(object):
         for im_path in [os.path.join(self.config.DIR_PATHS["TEST_IMG_DIR_PH"], i) for i in
                         os.listdir(self.config.DIR_PATHS["TEST_IMG_DIR_PH"]) if not i.startswith('.')]:
             # Read the Image
-            if self.config.DES_TYPE == "ORB":
-                im = cv2.imread(im_path, 0)
-            else:
-                im = Image.open(im_path).convert('L')
+            im = Image.open(im_path).convert('L')
             im = np.array(extractor.resize_by_short(im))
 
             detections = []  # List to store the detections
@@ -191,9 +185,13 @@ class Classifier(object):
                         continue
 
                     if self.config.DES_TYPE == "ORB":
-                        fd = extractor.process_image(im_window)
-                        fd = self.km.predict(fd)
+                        fd = extractor.process_image(im_window)       ## extract ORB feature from im_window
+                        if fd is None:
+                            fd = np.array([])
+                        else:
+                            fd = self.km.predict(fd)                      ## cluster with kmeans
                         fd = self.get_count_vector(fd)
+                        fd = [fd]
                     else:
                         # Calculate the HOG features
                         fd = extractor.process_image(im_window).reshape([1, -1])

@@ -68,6 +68,8 @@ class GeneralImageProcess():
         resized image
         :return : The resized image
         '''
+        #if isinstance(img, cv2.Mat):
+        #    img = Image.fromarray(cv2.cvtColor(img, cv2.COL))
         print(img.size)
         (x, y) = img.size
         if x > y:
@@ -218,6 +220,8 @@ class Extractor(GeneralImageProcess):
         elif self.config.DES_TYPE == "HAAR":
             fd = haar_like_feature(integral_image(image), 0, 0, 5, 5, 'type-3-x')
         elif self.config.DES_TYPE == "ORB":
+            image = image*255
+            image = np.array(image, dtype=np.uint8)
             Orb = cv2.ORB_create(nfeatures=self.config.ORBParam["Nfeatures"],
                                 edgeThreshold=self.config.ORBParam["Edgethresh"])
             fd = Orb.detectAndCompute(image, None)[1] # Compute the description of the keypoints
@@ -282,10 +286,10 @@ class Extractor(GeneralImageProcess):
 
         print("==> Calculating the descriptors for the positive samples and saving them")
         for im_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["POS_IMG_PH"], "*"))):
-            if self.config.DES_TYPE == "ORB":
-                im = cv2.imread(im_path, 0)
-            else:
-                im = imread(im_path, as_grey=True)
+            # if self.config.DES_TYPE == "ORB":
+            #     im = cv2.imread(im_path, 0)
+            # else:
+            im = imread(im_path, as_grey=True)
             fd = self.process_image(im)
             if fd is None: continue
             fd_name = os.path.split(im_path)[1].split(".")[0] + ".feat"
@@ -295,10 +299,10 @@ class Extractor(GeneralImageProcess):
 
         print("==> Calculating the descriptors for the negative samples and saving them")
         for im_path in tqdm(glob.glob(os.path.join(self.config.DIR_PATHS["NEG_IMG_PH"], "*"))):
-            if self.config.DES_TYPE == "ORB":
-                im = cv2.imread(im_path, 0)
-            else:
-                im = imread(im_path, as_grey=True)
+            # if self.config.DES_TYPE == "ORB":
+            #     im = cv2.imread(im_path, 0)
+            # else:
+            im = imread(im_path, as_grey=True)
             fd = self.process_image(im)
             if fd is None: continue
             fd_name = os.path.split(im_path)[1].split(".")[0] + ".feat"
